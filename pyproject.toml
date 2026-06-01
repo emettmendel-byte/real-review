@@ -1,0 +1,61 @@
+[project]
+name = "rrs"
+version = "0.1.0"
+description = "Real Rating Score — ML detection of suspicious/botted reviews on the Yelp Open Dataset"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "duckdb>=1.1",
+    "polars>=1.0",
+    "pyarrow>=17",
+    "pandas>=2.2",
+]
+
+# Heavier stacks are split into extras so the data-foundation work installs fast.
+# Phase 2+ (labeling/model): `uv sync --extra ml`
+# Phase 6  (API):            `uv sync --extra api`
+[project.optional-dependencies]
+ml = [
+    "scikit-learn>=1.5",
+    "lightgbm>=4.5",
+    "snorkel>=0.10",
+    "sentence-transformers>=3.0",
+    "optuna>=4.0",
+    "shap>=0.46",
+    "vadersentiment>=3.3",
+    "textstat>=0.7",
+]
+api = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+]
+
+[dependency-groups]
+dev = [
+    "jupyter>=1.1",
+    "ipykernel>=6.29",
+    "nbconvert>=7.16",
+    "matplotlib>=3.9",
+    "seaborn>=0.13",
+    "tabulate>=0.9",
+    "ruff>=0.7",
+    "pytest>=8.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rrs"]
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
