@@ -40,6 +40,7 @@ uv run python -m rrs.ingest                    # load Philadelphia → data/yelp
 uv run python -m rrs.ingest --metro santa_barbara
 uv run python -m rrs.eda                       # print distributions, write reports/ + figures
 uv run python -m rrs.labeling.apply            # → labels/weak_labels.parquet + audit (~8 min)
+uv run python -m rrs.features.build            # → features/reviews.parquet + embeddings (~55 min)
 uv run python scripts/build_eda_notebook.py    # regenerate notebooks/01_eda.ipynb from rrs.eda
 uv run pytest -q                               # tests (pure-function, no DB needed)
 uv run ruff check src tests scripts            # lint (line-length 100)
@@ -63,7 +64,14 @@ Source is a `src/rrs/` package (see `README.md` for the tree). Key modules:
   detection; `lfs.py` holds the 10 vectorized Polars LFs (each returns Int8 of
   ABSTAIN/AUTHENTIC/SUSPICIOUS); `apply.py` stacks them into a label matrix, fits
   Snorkel's `LabelModel`, and writes `labels/weak_labels.parquet` + an audit report.
-- `features/`, `modeling/`, `api/` — empty packages for Phases 3–6.
+- `features/` — Phase 3 feature engineering. `reviewer.py` per-user aggregates
+  (rating moments, social, posting-hour entropy); `content.py` polars text features
+  + multiprocessed VADER + a self-contained Flesch implementation (no NLTK); `context.py`
+  per-review deltas, prev-review lag, cumulative count, and burst flag; `embeddings.py`
+  MiniLM encode (uses MPS on Apple Silicon) + per-user/per-business max-cosine scalars;
+  `build.py` orchestrator. Output: `features/reviews.parquet` (36 cols, sorted by
+  business_id) + `embeddings.npy` (memmap-friendly) + `embeddings_index.parquet`.
+- `modeling/`, `api/` — empty packages for Phases 4 and 6.
 
 DuckDB tables: `businesses`, `reviews`, `users`, `tips`, `checkins`, `meta`.
 
@@ -85,11 +93,18 @@ DuckDB tables: `businesses`, `reviews`, `users`, `tips`, `checkins`, `meta`.
   SUSPICIOUS branch and an AUTHENTIC branch — change thresholds carefully.
 - **Snorkel 0.10 API quirk:** `LabelModel` is at `snorkel.labeling.model`, not
   `snorkel.labeling` (the docs you'll find online describe the older 0.9 layout).
+- **Don't use `textstat`'s Flesch** — it transitively imports NLTK's CMU dictionary,
+  which fails to load inside multiprocessing workers. `features/content.py` ships a
+  self-contained Flesch implementation (vowel-group syllable count + silent-e).
+- **MPS on Apple Silicon gives ~1.5× over CPU for MiniLM** (~680 vs ~470 texts/sec),
+  not the 10× you'd hope. The model is tiny enough that tokenization (CPU) is a big
+  chunk of the wall-clock. Don't crank batch size past 128 — larger batches stall on
+  this hardware in ways that don't show up in CPU utilization.
 
 ## Status
 
-Phases 1 (data foundation) and 2 (weak supervision) are done. On Philadelphia: 1.93M
-reviews scored, 21% flagged at `p_suspicious > 0.5`, distribution is healthily bimodal
-(P50≈0.05, P90≈0.93). Top-100 audit in `reports/labels_philadelphia.md`. Next: Phase 3
-feature engineering (the reviewer/content/context families in the plan). See `README.md`
-for the full status table.
+Phases 1–3 are done. Philadelphia: 1.93M reviews fully featured (`features/reviews.parquet`
+36 cols + `embeddings.npy` 2.96 GB), weakly labeled (`labels/weak_labels.parquet`).
+Per-user MiniLM near-duplicate share ≈1.3%; per-business avg sim ≈0.70. Next: Phase 4
+LightGBM training using `p_suspicious` as the soft label, with a time-based split at
+2020. See `README.md` for the full status table.

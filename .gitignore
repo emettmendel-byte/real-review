@@ -2,12 +2,14 @@
 Yelp JSON/
 *.json.gz
 
-# Generated data artifacts
-data/
+# Generated data artifacts — leading `/` anchors to repo root so the patterns
+# don't accidentally hide `src/rrs/features/`, `src/rrs/labeling/`, etc.
+/data/
+/labels/
+/features/
 *.duckdb
 *.duckdb.wal
 *.parquet
-labels/
 reports/figures/
 
 # Python
@@ -25,3 +27,7 @@ __pycache__/
 .DS_Store
 .vscode/
 .idea/
+
+# Local Claude Code state (settings.local.json is per-user; lock file is transient)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

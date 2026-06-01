@@ -10,8 +10,8 @@ for the full design and rationale.
 |------|------|-------|
 | 1 | Data foundation — JSON → DuckDB, EDA | ✅ built |
 | 2 | Weak supervision labels (Snorkel) | ✅ built |
-| 3 | Feature engineering (Polars) | ⬜ next |
-| 4 | Suspicion model (LightGBM + SHAP) | ⬜ |
+| 3 | Feature engineering (Polars) | ✅ built |
+| 4 | Suspicion model (LightGBM + SHAP) | ⬜ next |
 | 5 | Real Rating Score aggregation | ⬜ |
 | 6 | FastAPI service | ⬜ |
 | 7 | Next.js frontend | ⬜ |
@@ -59,6 +59,28 @@ and the top 100 highest-confidence suspicious reviews for manual audit.
 On the 1.93M Philadelphia reviews the full pipeline runs in ~8 minutes; the
 duplicate-text per-user TF-IDF is the dominant cost.
 
+## Phase 3 — feature engineering
+
+```bash
+uv run python -m rrs.features.build               # → features/reviews.parquet + embeddings
+uv run python -m rrs.features.build --skip-embeddings   # everything except MiniLM
+uv run python -m rrs.features.build --sample 50000      # fast debug subset
+```
+
+Three feature families joined per review and written sorted by `business_id`:
+**reviewer** (11 per-user aggregates: tenure, rating moments, social, posting-hour
+entropy), **content** (lengths + caps/exclamation/first-person ratios + VADER + Flesch
++ MiniLM embedding + per-user / per-business max-cosine scalars), **context** (stars
+deltas, prev-review lag, cumulative count, burst flag).
+
+`features/reviews.parquet` is ~200 MB / 36 columns. The 384-dim MiniLM embeddings
+themselves live separately at `features/embeddings.npy` (memmap-friendly, 2.96 GB)
+keyed by `features/embeddings_index.parquet` so Phase 4 can choose to consume them
+raw, PCA-reduce, or use only the derived similarity scalars.
+
+End-to-end on Philadelphia (1.93M reviews, MPS GPU): ~55 min, dominated by the
+MiniLM encode step at ~613 texts/sec.
+
 ## Layout
 
 ```
@@ -73,10 +95,16 @@ src/rrs/
 │   ├── lfs.py       # 10 vectorized labeling functions
 │   └── apply.py     # combine LFs → LabelModel → weak_labels.parquet
 ├── features/        # Phase 3
+│   ├── reviewer.py  # per-user aggregates (rating moments, social, hour entropy)
+│   ├── content.py   # text features + VADER + Flesch (multiprocessed)
+│   ├── context.py   # per-review deltas, lag, cumulative count, burst flag
+│   ├── embeddings.py # MiniLM encode + per-key max-cosine scalars
+│   └── build.py     # orchestrator → features/reviews.parquet
 ├── modeling/        # Phase 4
 └── api/             # Phase 6
 data/                # gitignored: yelp.duckdb
 labels/              # gitignored: weak_labels.parquet
+features/            # gitignored: reviews.parquet + embeddings.npy
 notebooks/           # 01_eda.ipynb
 reports/             # EDA + labels audit + figures
 tests/
