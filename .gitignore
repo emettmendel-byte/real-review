@@ -7,6 +7,8 @@ Yelp JSON/
 /data/
 /labels/
 /features/
+/models/
+logs/
 *.duckdb
 *.duckdb.wal
 *.parquet

@@ -11,8 +11,8 @@ for the full design and rationale.
 | 1 | Data foundation — JSON → DuckDB, EDA | ✅ built |
 | 2 | Weak supervision labels (Snorkel) | ✅ built |
 | 3 | Feature engineering (Polars) | ✅ built |
-| 4 | Suspicion model (LightGBM + SHAP) | ⬜ next |
-| 5 | Real Rating Score aggregation | ⬜ |
+| 4 | Suspicion model (LightGBM + SHAP) | ✅ built |
+| 5 | Real Rating Score aggregation | ⬜ next |
 | 6 | FastAPI service | ⬜ |
 | 7 | Next.js frontend | ⬜ |
 
@@ -81,6 +81,29 @@ raw, PCA-reduce, or use only the derived similarity scalars.
 End-to-end on Philadelphia (1.93M reviews, MPS GPU): ~55 min, dominated by the
 MiniLM encode step at ~613 texts/sec.
 
+## Phase 4 — suspicion model
+
+```bash
+uv run python -m rrs.modeling.train               # → models/ + reports/model_<metro>.md (~15 min)
+uv run python -m rrs.modeling.train --n-trials 15 # lighter Optuna search
+uv run python -m rrs.modeling.train --sample 80000 --no-shap   # fast debug
+```
+
+A LightGBM model is trained to predict the Snorkel `p_suspicious` soft label from the
+Phase 3 features, using the `cross_entropy` objective (native [0, 1] targets). The
+train/test split is **by time at 2020** — never random — and ~40 Optuna trials tune
+against a held-out 2019 validation fold before the final model is refit on the full
+pre-2020 period. Outputs: `models/lgbm_suspicion.txt`, a pickled SHAP `TreeExplainer`,
+`models/predictions.parquet` (`review_id → p_fake` for every review, the Phase 5 input),
+and a report with metrics, feature importances, a synthetic-injection probe, a held-out-
+heuristic ablation, and the top-100 reviews by `p_fake` for manual audit.
+
+Because there is no labeled ground truth, every metric is measured **against the
+LabelModel's own output** — so a high AUC means the model faithfully reproduces and
+generalizes the weak labels, not that it has detected verified fakes. Two known leakage
+caveats (snapshot-relative per-user aggregates; the weak-label circularity) are spelled
+out in the report. Treat `p_fake` as a calibrated second opinion, never a verdict.
+
 ## Layout
 
 ```
@@ -101,12 +124,15 @@ src/rrs/
 │   ├── embeddings.py # MiniLM encode + per-key max-cosine scalars
 │   └── build.py     # orchestrator → features/reviews.parquet
 ├── modeling/        # Phase 4
+│   ├── dataset.py   # join features+labels, leakage-aware feature selection, time split
+│   └── train.py     # Optuna-tuned LightGBM + eval + validation + SHAP
 └── api/             # Phase 6
 data/                # gitignored: yelp.duckdb
 labels/              # gitignored: weak_labels.parquet
 features/            # gitignored: reviews.parquet + embeddings.npy
+models/              # gitignored: lgbm_suspicion.txt + shap_explainer.pkl + predictions.parquet
 notebooks/           # 01_eda.ipynb
-reports/             # EDA + labels audit + figures
+reports/             # EDA + labels audit + model report + figures
 tests/
 ```
 

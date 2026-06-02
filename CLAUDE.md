@@ -41,6 +41,7 @@ uv run python -m rrs.ingest --metro santa_barbara
 uv run python -m rrs.eda                       # print distributions, write reports/ + figures
 uv run python -m rrs.labeling.apply            # → labels/weak_labels.parquet + audit (~8 min)
 uv run python -m rrs.features.build            # → features/reviews.parquet + embeddings (~55 min)
+uv run python -m rrs.modeling.train            # → models/ + reports/model_<metro>.md (~15 min)
 uv run python scripts/build_eda_notebook.py    # regenerate notebooks/01_eda.ipynb from rrs.eda
 uv run pytest -q                               # tests (pure-function, no DB needed)
 uv run ruff check src tests scripts            # lint (line-length 100)
@@ -71,7 +72,13 @@ Source is a `src/rrs/` package (see `README.md` for the tree). Key modules:
   MiniLM encode (uses MPS on Apple Silicon) + per-user/per-business max-cosine scalars;
   `build.py` orchestrator. Output: `features/reviews.parquet` (36 cols, sorted by
   business_id) + `embeddings.npy` (memmap-friendly) + `embeddings_index.parquet`.
-- `modeling/`, `api/` — empty packages for Phases 4 and 6.
+- `modeling/` — Phase 4 suspicion model. `dataset.py` joins features to the Phase 2
+  `p_suspicious` soft label, does leakage-aware feature selection (drops
+  `account_age_days_snapshot`, keeps the point-in-time `account_age_days_at_review`), and
+  the time split at 2020; `train.py` runs the Optuna search (single 2019 validation fold),
+  refits on full pre-2020, evaluates on 2020+, runs the validation suite (synthetic
+  injection, duplicate-text ablation, top-100 audit), and writes `models/` + the report.
+- `api/` — empty package for Phase 6.
 
 DuckDB tables: `businesses`, `reviews`, `users`, `tips`, `checkins`, `meta`.
 
@@ -86,6 +93,14 @@ DuckDB tables: `businesses`, `reviews`, `users`, `tips`, `checkins`, `meta`.
   leak signal. ~1.66M train / ~266K test in Philadelphia.
 - Treat `p_fake` as a probability/second opinion, never a verdict (see the plan's "Honest
   limitations" and frontend tone notes).
+- **Phase 4 trains on soft labels with `objective="cross_entropy"`** (LightGBM's native
+  [0,1]-target objective) — *not* `binary`, which expects 0/1. Every model metric (AUC, AP,
+  precision@k) is computed against the LabelModel's *own* binarized output, so a near-1.0
+  AUC reflects faithful reproduction of the weak labels, not ground-truth fake detection.
+  Keep that framing in any report or UI copy.
+- **`feature_pre_filter=False` is required for the Optuna search.** Trials reuse one
+  `lgb.Dataset` while varying `min_child_samples`; with pre-filtering on, lowering it below
+  the first trial's value is a fatal error. It's set in `train._base_params()`.
 - `ruff` line length 100; rules in `pyproject.toml`. Tests must not require the multi-GB
   files or a built DB.
 - **LFs must vote on both polarities** ([0, 1] in `LFAnalysis`). One-sided LFs degrade
@@ -103,8 +118,13 @@ DuckDB tables: `businesses`, `reviews`, `users`, `tips`, `checkins`, `meta`.
 
 ## Status
 
-Phases 1–3 are done. Philadelphia: 1.93M reviews fully featured (`features/reviews.parquet`
-36 cols + `embeddings.npy` 2.96 GB), weakly labeled (`labels/weak_labels.parquet`).
-Per-user MiniLM near-duplicate share ≈1.3%; per-business avg sim ≈0.70. Next: Phase 4
-LightGBM training using `p_suspicious` as the soft label, with a time-based split at
-2020. See `README.md` for the full status table.
+Phases 1–4 are done. Philadelphia: 1.93M reviews fully featured (`features/reviews.parquet`
+36 cols + `embeddings.npy` 2.96 GB), weakly labeled (`labels/weak_labels.parquet`), and
+scored by the Phase 4 LightGBM (`models/lgbm_suspicion.txt`, `models/predictions.parquet`).
+Test (2020+) AUC ≈ 0.999 / AP ≈ 0.998 **against the LabelModel's own output** — i.e. the
+model faithfully reproduces the weak labels, not verified fakes. Gain is dominated by the
+per-user aggregates (`total_reviews` ≈0.65, `friend_count` ≈0.17), which is also where the
+documented temporal leakage lives; the embedding-similarity scalars get ~0 gain and the
+duplicate-text ablation shows that heuristic is *not* reproduced. Next: Phase 5 — aggregate
+`p_fake` into the per-business Real Rating Score. See `README.md` for the full status table
+and `reports/model_philadelphia.md` for metrics + limitations.
