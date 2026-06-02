@@ -13,8 +13,8 @@ for the full design and rationale.
 | 3 | Feature engineering (Polars) | ✅ built |
 | 4 | Suspicion model (LightGBM + SHAP) | ✅ built |
 | 5 | Real Rating Score aggregation | ✅ built |
-| 6 | FastAPI service | ⬜ next |
-| 7 | Next.js frontend | ⬜ |
+| 6 | FastAPI service | ✅ built |
+| 7 | Next.js frontend | ⬜ next |
 
 **Current metro: Philadelphia.** The Yelp Open Dataset (Jan 2022) does **not** contain Los
 Angeles; its largest metro is Philadelphia (the "LA" state code in the data is Louisiana /
@@ -119,6 +119,42 @@ rescaled to [0, 1] using the effective sample size) and transparency counts (`pc
 the per-business Phase 6 input; the largest up/down adjustments land in
 `reports/rrs_<metro>.md`.
 
+## Phase 6 — API
+
+```bash
+uv sync --extra ml --extra api                          # shap+lightgbm (ml) + fastapi (api)
+PYTHONPATH=src uv run uvicorn rrs.api.app:app --port 8011
+```
+
+A FastAPI service over the Phase 1–5 outputs. The booster, SHAP `TreeExplainer`,
+`predictions.parquet`, and `rrs_scores.parquet` are loaded **once** at startup (a lifespan
+cache warm); DuckDB is opened **read-only** per request. Three v1 endpoints:
+
+```
+GET /businesses/search?q={query}&city={city}&limit=20
+  → [{ business_id, name, city, state, yelp_rating, yelp_review_count, rrs }]
+    Case-insensitive name substring (+ optional exact city), ordered by review_count desc.
+
+GET /businesses/{business_id}
+  → { business_id, name, address, city, state, categories,
+      yelp_rating, yelp_review_count,
+      rrs, rrs_ci_low, rrs_ci_high,
+      pct_flagged, n_flagged, n_authentic_reviews, n_reviews }      404 if unknown.
+
+GET /businesses/{business_id}/reviews?include_flags=true&limit=50&offset=0
+  → [{ review_id, stars, text, date, p_fake, top_signals: [str, str, str] }]
+    404 if unknown. `top_signals` is [] when include_flags=false (skips the SHAP cost).
+```
+
+`top_signals` is the trust-building differentiator: for each returned review the cached
+SHAP explainer scores its feature row (log-odds space, positive = pushes `p_fake` up), and
+the **top 3 positive contributors** are rendered into plain language from the review's
+*actual* feature values — e.g. `"Account created 4 days before the review"`,
+`"Text 94% similar to another review by the same user"`,
+`"Posted during a burst of reviews on this business"`. Signals describe the *signal*, never
+name or accuse a user; `p_fake` and the RRS are a **second opinion, not a verdict**.
+`GET /health` returns liveness + the loaded metro. Interactive docs at `/docs`.
+
 ## Layout
 
 ```
@@ -142,7 +178,10 @@ src/rrs/
 │   ├── dataset.py   # join features+labels, leakage-aware feature selection, time split
 │   └── train.py     # Optuna-tuned LightGBM + eval + validation + SHAP
 ├── scoring.py       # Phase 5: per-business RRS aggregation
-└── api/             # Phase 6
+└── api/             # Phase 6: FastAPI service
+    ├── app.py       # FastAPI app + the 3 endpoints
+    ├── data.py      # cached startup loaders (booster/explainer/parquet) + read-only DuckDB
+    └── signals.py   # SHAP → plain-language top_signals (pure, unit-tested)
 data/                # gitignored: yelp.duckdb
 labels/              # gitignored: weak_labels.parquet
 features/            # gitignored: reviews.parquet + embeddings.npy

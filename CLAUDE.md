@@ -83,7 +83,14 @@ Source is a `src/rrs/` package (see `README.md` for the tree). Key modules:
   `global_trust_weighted_mean` (μ), `score_businesses` (trust-weighted mean +
   Bayesian shrinkage toward μ, K=`PRIOR_WEIGHT`=10, Wilson CI on the [0,1]-rescaled
   rating). Output: `models/rrs_scores.parquet` (per business) — the Phase 6 input.
-- `api/` — empty package for Phase 6.
+- `api/` — Phase 6 FastAPI service. `data.py` caches the booster, SHAP explainer,
+  `predictions.parquet` and `rrs_scores.parquet` once at startup (lru_cache/lifespan) and
+  opens DuckDB **read-only**; `signals.py` is the pure SHAP→plain-English mapping (one
+  renderer per model feature, positive log-odds = pushes `p_fake` up, top-3 incriminating
+  signals, never names a user); `app.py` is the FastAPI `app` with the three
+  `/businesses` endpoints + `/health`. Runtime needs **both** extras:
+  `uv sync --extra ml --extra api`; run with
+  `PYTHONPATH=src uv run uvicorn rrs.api.app:app`.
 
 DuckDB tables: `businesses`, `reviews`, `users`, `tips`, `checkins`, `meta`.
 
@@ -133,5 +140,7 @@ documented temporal leakage lives; the embedding-similarity scalars get ~0 gain 
 duplicate-text ablation shows that heuristic is *not* reproduced. Phase 5 aggregates
 `p_fake` into the per-business RRS (`models/rrs_scores.parquet`, 44,840 businesses;
 μ=3.747, mean |RRS−naive|≈0.44 stars; biggest downward moves are small all-5★ shops with
-~75% flagged). Next: Phase 6 — FastAPI service over the DB + RRS + per-review SHAP signals.
-See `README.md` for the full status table and `reports/` for metrics + limitations.
+~75% flagged). Phase 6 serves it all over FastAPI (`/businesses/search`, `/businesses/{id}`,
+`/businesses/{id}/reviews` with per-review SHAP `top_signals`). Next: Phase 7 — Next.js
+frontend in `frontend/`. See `README.md` for the full status table and `reports/` for
+metrics + limitations.
