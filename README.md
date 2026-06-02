@@ -14,7 +14,7 @@ for the full design and rationale.
 | 4 | Suspicion model (LightGBM + SHAP) | ✅ built |
 | 5 | Real Rating Score aggregation | ✅ built |
 | 6 | FastAPI service | ✅ built |
-| 7 | Next.js frontend | ⬜ next |
+| 7 | Next.js frontend | ✅ built |
 
 **Current metro: Philadelphia.** The Yelp Open Dataset (Jan 2022) does **not** contain Los
 Angeles; its largest metro is Philadelphia (the "LA" state code in the data is Louisiana /
@@ -155,6 +155,24 @@ the **top 3 positive contributors** are rendered into plain language from the re
 name or accuse a user; `p_fake` and the RRS are a **second opinion, not a verdict**.
 `GET /health` returns liveness + the loaded metro. Interactive docs at `/docs`.
 
+## Phase 7 — frontend
+
+```bash
+# with the API running (see Phase 6):
+cd frontend && npm install && npm run dev      # http://localhost:3000
+```
+
+A Next.js (App Router) + TypeScript + Tailwind client — a thin layer over the Phase 6 API,
+configured via `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8011`; see
+`frontend/.env.local.example` and `frontend/README.md`). Three pages: `/` search,
+`/business/[id]` (Yelp rating vs RRS side-by-side with the confidence range, % flagged, and
+a dependency-free histogram of `p_fake` across the business's reviews), and
+`/business/[id]/reviews` (review list with a "show flagged" toggle and a per-review signal
+explainer). Per the project's tone rules, the RRS is framed as a **second opinion, not a
+verdict**: flagged reviews are dimmed but always visible with their `top_signals`
+explanation, no user is ever named or accused, and an honest-limitations disclaimer is
+surfaced in the UI.
+
 ## Layout
 
 ```
@@ -186,6 +204,7 @@ data/                # gitignored: yelp.duckdb
 labels/              # gitignored: weak_labels.parquet
 features/            # gitignored: reviews.parquet + embeddings.npy
 models/              # gitignored: lgbm_suspicion.txt + shap_explainer.pkl + predictions/rrs_scores.parquet
+frontend/            # Phase 7: Next.js + TypeScript + Tailwind client over the API
 notebooks/           # 01_eda.ipynb
 reports/             # EDA + labels audit + model report + figures
 tests/

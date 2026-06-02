@@ -141,6 +141,8 @@ duplicate-text ablation shows that heuristic is *not* reproduced. Phase 5 aggreg
 `p_fake` into the per-business RRS (`models/rrs_scores.parquet`, 44,840 businesses;
 μ=3.747, mean |RRS−naive|≈0.44 stars; biggest downward moves are small all-5★ shops with
 ~75% flagged). Phase 6 serves it all over FastAPI (`/businesses/search`, `/businesses/{id}`,
-`/businesses/{id}/reviews` with per-review SHAP `top_signals`). Next: Phase 7 — Next.js
-frontend in `frontend/`. See `README.md` for the full status table and `reports/` for
-metrics + limitations.
+`/businesses/{id}/reviews` with per-review SHAP `top_signals`), and Phase 7 is the Next.js +
+TypeScript + Tailwind client in `frontend/` (search, Yelp-vs-RRS detail with a `p_fake`
+histogram, reviews list with a show-flagged toggle + signal explainers). **All 7 phases are
+done (v1).** See `README.md` for the full status table and `reports/` for metrics +
+limitations.
