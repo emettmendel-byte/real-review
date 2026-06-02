@@ -12,8 +12,8 @@ for the full design and rationale.
 | 2 | Weak supervision labels (Snorkel) | ✅ built |
 | 3 | Feature engineering (Polars) | ✅ built |
 | 4 | Suspicion model (LightGBM + SHAP) | ✅ built |
-| 5 | Real Rating Score aggregation | ⬜ next |
-| 6 | FastAPI service | ⬜ |
+| 5 | Real Rating Score aggregation | ✅ built |
+| 6 | FastAPI service | ⬜ next |
 | 7 | Next.js frontend | ⬜ |
 
 **Current metro: Philadelphia.** The Yelp Open Dataset (Jan 2022) does **not** contain Los
@@ -104,6 +104,21 @@ generalizes the weak labels, not that it has detected verified fakes. Two known 
 caveats (snapshot-relative per-user aggregates; the weak-label circularity) are spelled
 out in the report. Treat `p_fake` as a calibrated second opinion, never a verdict.
 
+## Phase 5 — Real Rating Score
+
+```bash
+uv run python -m rrs.scoring     # → models/rrs_scores.parquet + reports/rrs_<metro>.md
+```
+
+Each review is weighted by its *trust* (`1 − p_fake`) — a likely-fake review counts for
+less but is never dropped — and the trust-weighted star average is Bayesian-shrunk toward
+the global mean (`PRIOR_WEIGHT = 10`) so thin or low-trust evidence doesn't swing the
+score. The output bundles the RRS with a Wilson confidence interval (on the rating
+rescaled to [0, 1] using the effective sample size) and transparency counts (`pct_flagged`,
+`n_flagged`, `n_authentic_reviews`) — never a bare number. `models/rrs_scores.parquet` is
+the per-business Phase 6 input; the largest up/down adjustments land in
+`reports/rrs_<metro>.md`.
+
 ## Layout
 
 ```
@@ -126,11 +141,12 @@ src/rrs/
 ├── modeling/        # Phase 4
 │   ├── dataset.py   # join features+labels, leakage-aware feature selection, time split
 │   └── train.py     # Optuna-tuned LightGBM + eval + validation + SHAP
+├── scoring.py       # Phase 5: per-business RRS aggregation
 └── api/             # Phase 6
 data/                # gitignored: yelp.duckdb
 labels/              # gitignored: weak_labels.parquet
 features/            # gitignored: reviews.parquet + embeddings.npy
-models/              # gitignored: lgbm_suspicion.txt + shap_explainer.pkl + predictions.parquet
+models/              # gitignored: lgbm_suspicion.txt + shap_explainer.pkl + predictions/rrs_scores.parquet
 notebooks/           # 01_eda.ipynb
 reports/             # EDA + labels audit + model report + figures
 tests/

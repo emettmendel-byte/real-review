@@ -42,6 +42,7 @@ uv run python -m rrs.eda                       # print distributions, write repo
 uv run python -m rrs.labeling.apply            # → labels/weak_labels.parquet + audit (~8 min)
 uv run python -m rrs.features.build            # → features/reviews.parquet + embeddings (~55 min)
 uv run python -m rrs.modeling.train            # → models/ + reports/model_<metro>.md (~15 min)
+uv run python -m rrs.scoring                   # → models/rrs_scores.parquet + report (~5s)
 uv run python scripts/build_eda_notebook.py    # regenerate notebooks/01_eda.ipynb from rrs.eda
 uv run pytest -q                               # tests (pure-function, no DB needed)
 uv run ruff check src tests scripts            # lint (line-length 100)
@@ -78,6 +79,10 @@ Source is a `src/rrs/` package (see `README.md` for the tree). Key modules:
   the time split at 2020; `train.py` runs the Optuna search (single 2019 validation fold),
   refits on full pre-2020, evaluates on 2020+, runs the validation suite (synthetic
   injection, duplicate-text ablation, top-100 audit), and writes `models/` + the report.
+- `scoring.py` — Phase 5 RRS aggregation. `wilson_interval` (proportion CI),
+  `global_trust_weighted_mean` (μ), `score_businesses` (trust-weighted mean +
+  Bayesian shrinkage toward μ, K=`PRIOR_WEIGHT`=10, Wilson CI on the [0,1]-rescaled
+  rating). Output: `models/rrs_scores.parquet` (per business) — the Phase 6 input.
 - `api/` — empty package for Phase 6.
 
 DuckDB tables: `businesses`, `reviews`, `users`, `tips`, `checkins`, `meta`.
@@ -125,6 +130,8 @@ Test (2020+) AUC ≈ 0.999 / AP ≈ 0.998 **against the LabelModel's own output*
 model faithfully reproduces the weak labels, not verified fakes. Gain is dominated by the
 per-user aggregates (`total_reviews` ≈0.65, `friend_count` ≈0.17), which is also where the
 documented temporal leakage lives; the embedding-similarity scalars get ~0 gain and the
-duplicate-text ablation shows that heuristic is *not* reproduced. Next: Phase 5 — aggregate
-`p_fake` into the per-business Real Rating Score. See `README.md` for the full status table
-and `reports/model_philadelphia.md` for metrics + limitations.
+duplicate-text ablation shows that heuristic is *not* reproduced. Phase 5 aggregates
+`p_fake` into the per-business RRS (`models/rrs_scores.parquet`, 44,840 businesses;
+μ=3.747, mean |RRS−naive|≈0.44 stars; biggest downward moves are small all-5★ shops with
+~75% flagged). Next: Phase 6 — FastAPI service over the DB + RRS + per-review SHAP signals.
+See `README.md` for the full status table and `reports/` for metrics + limitations.
