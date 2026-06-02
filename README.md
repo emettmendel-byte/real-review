@@ -32,6 +32,10 @@ uv sync                      # core + dev deps (Python 3.12)
 # uv sync --extra api        # FastAPI
 ```
 
+Once the data/models are built (Phases 1–5), `make install` pulls every dependency and
+`make dev` runs the API and frontend together in one terminal (Ctrl-C stops both). Run
+`make help` for all targets.
+
 ## Phase 1 — data foundation
 
 ```bash
